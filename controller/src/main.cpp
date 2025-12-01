@@ -24,12 +24,26 @@
 MQTT mqtt;
 
 
+/* THIS IS TEMPORARY */
+String topic_lwt;
+String topic_temperatureDHT;
+String topic_humidityDHT;
+String topic_temperatureLM;
+
 
 const char* ntpServer = "pool.ntp.org";
 const long  gmtOffset_sec = 0;      // adjust if needed
 const int   daylightOffset_sec = 0; // adjust if needed
 
 
+LM35 lm35;
+DHT dht(22, DHT11);
+
+#define UPDATE_VALUE    (10*1000)
+#define UPLOAD_VALUE    (1*60*1000)
+uint64_t lastUpdate = 0;
+uint64_t lastUpload = 0;
+bool connectUpload = false;
 
 
 void MQTT_callback(const char *topic, const byte *payload, const unsigned int length) {
@@ -52,7 +66,7 @@ void setup() {
 
 #ifdef USE_WIFI
     wifi.init();
-    wifi.config("", "");
+    wifi.config(WIFI_SSID, WIFI_PASS);
 #else
     mobile.init(23, 4, 5, 27, 26);
     mobile.config("", "");
@@ -67,6 +81,7 @@ void setup() {
 
     Client* client = network->getClient();
 
+    /*
     HttpClient http(*client, "example.com");
     int error = http.get("/");
     int status  = http.responseStatusCode();
@@ -74,8 +89,6 @@ void setup() {
     String body = http.responseBody();
     LOG_D(TAG_MAIN, "Received: [status: %d] [body (%d): %s]", status, bodyLen, body.c_str());
 
-
-    /*
     HttpClient http2(*client, "worldtimeapi.org");
     LOG_T(TAG_MAIN, "timeout %d", http2.getTimeout());
     int error2 = http2.get("/");
@@ -89,11 +102,15 @@ void setup() {
 
 
 
+    topic_lwt = "irrigation/sectors/v0/"+String(getUniqueId())+"/up/lwt";
+    topic_temperatureDHT = "irrigation/sectors/v0/"+String(getUniqueId())+"/up/sensors/temperature/0";
+    topic_temperatureLM = "irrigation/sectors/v0/"+String(getUniqueId())+"/up/sensors/temperature/1";
+    topic_humidityDHT = "irrigation/sectors/v0/"+String(getUniqueId())+"/up/sensors/humidity/0";
 
-
-    OTATS ota(client, FIRMWARE_VERSION, "r_e_0CDC7E69AEE4");
+    /*
+    OTATS ota(client, FIRMWARE_VERSION, "s_");
     ota.setProgressCallback(
-        /* onProgress */ [](uint32_t downloadedBytes, uint32_t totalBytes) {
+        /* onProgress * [](uint32_t downloadedBytes, uint32_t totalBytes) {
             LOG_T(TAG_MAIN, "DL: %6.02f %%", (100.0 * downloadedBytes) / totalBytes);
         }
     );
@@ -105,13 +122,14 @@ void setup() {
     if (statusOTA == EOTAUpdateStatus::OTA_INSTALLED) {
         ESP.restart();
     }
+    */
 
 
-    mqtt.setClient(client, "PINI_666");
+    mqtt.setClient(client, getUniqueId());
     mqtt.setServer("staging.trigger.systems", 9069);
     mqtt.setCredentials(MQTT_TS_USER, MQTT_TS_PASS);
 
-    mqtt.setWill("pinicore/up/lwt", "0", 2, true);
+    mqtt.setWill(topic_lwt.c_str(), "0", 2, true);
 
     mqtt.onTopic(
         "pinicore/down/test",
@@ -122,16 +140,42 @@ void setup() {
 
     mqtt.onConnect(
         []() {
-            mqtt.publish("pinicore/up/lwt", "1", true);
+            mqtt.publish(topic_lwt.c_str(), "1", true);
+            connectUpload = true;
         }
     );
     mqtt.connect();
 
+    lm35.init(34);
+    //dht.init(23, EDHT::DHT_11);
+    dht.begin();
+
     LOG_I(TAG_MAIN, "Setup completed");
 }
 
-uint64_t lastUpdate;
+int temp0Value;
+int hum0Value;
+int temp1Value;
 void loop() {
     network->maintain();
     mqtt.maintain();
+
+    temp0Value = dht.readTemperature();
+    hum0Value  = dht.readHumidity();
+    temp1Value = lm35.readTemperature();
+
+    if (lastUpdate + UPDATE_VALUE < getMillis()) {
+        LOG_T(TAG_MAIN, "%dºC | %dºC - %d%", temp1Value, temp0Value, hum0Value);
+        lastUpdate = getMillis();
+    }
+
+    if (mqtt.isConnected()) {
+        if (lastUpload + UPLOAD_VALUE < getMillis() || connectUpload) {
+            mqtt.publish(topic_temperatureDHT.c_str(), String(temp0Value).c_str(), false);
+            mqtt.publish(topic_humidityDHT.c_str(), String(hum0Value).c_str(), false);
+            mqtt.publish(topic_temperatureLM.c_str(), String(temp1Value).c_str(), false);
+            lastUpload = getMillis();
+            connectUpload = false;
+        }
+    }
 }
