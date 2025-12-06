@@ -23,7 +23,6 @@
 
 MQTT mqtt;
 
-
 /* THIS IS TEMPORARY */
 String topic_lwt;
 String topic_temperatureDHT;
@@ -37,13 +36,17 @@ const int   daylightOffset_sec = 0; // adjust if needed
 
 
 LM35 lm35;
-DHT dht(22, DHT11);
+DHT dht;
 
-#define UPDATE_VALUE    (10*1000)
-#define UPLOAD_VALUE    (1*60*1000)
+#define UPDATE_VALUE    (15*1000)
+#define UPLOAD_VALUE    (5*60*1000)
 uint64_t lastUpdate = 0;
 uint64_t lastUpload = 0;
 bool connectUpload = false;
+
+
+//RelaysVirtual rVirtual;
+//IRelays irelays;
 
 
 void MQTT_callback(const char *topic, const byte *payload, const unsigned int length) {
@@ -88,19 +91,7 @@ void setup() {
     int bodyLen = http.contentLength();
     String body = http.responseBody();
     LOG_D(TAG_MAIN, "Received: [status: %d] [body (%d): %s]", status, bodyLen, body.c_str());
-
-    HttpClient http2(*client, "worldtimeapi.org");
-    LOG_T(TAG_MAIN, "timeout %d", http2.getTimeout());
-    int error2 = http2.get("/");
-    LOG_T(TAG_MAIN, "after get");
-    int status2  = http2.responseStatusCode();
-    int bodyLen2 = http2.contentLength();
-    String body2 = http2.responseBody();
-    LOG_D(TAG_MAIN, "Received: [status: %d] [body (%d): %s]", status2, bodyLen2, body2.c_str());
     */
-
-
-
 
     topic_lwt = "irrigation/sectors/v0/"+String(getUniqueId())+"/up/lwt";
     topic_temperatureDHT = "irrigation/sectors/v0/"+String(getUniqueId())+"/up/sensors/temperature/0";
@@ -124,10 +115,9 @@ void setup() {
     }
     */
 
-
     mqtt.setClient(client, getUniqueId());
-    mqtt.setServer("staging.trigger.systems", 9069);
-    mqtt.setCredentials(MQTT_TS_USER, MQTT_TS_PASS);
+    mqtt.setServer(MQTT_SERVER, MQTT_PORT);
+    mqtt.setCredentials(MQTT_USER, MQTT_PASS);
 
     mqtt.setWill(topic_lwt.c_str(), "0", 2, true);
 
@@ -146,9 +136,28 @@ void setup() {
     );
     mqtt.connect();
 
-    lm35.init(34);
-    //dht.init(23, EDHT::DHT_11);
-    dht.begin();
+    lm35.init(34, 2.0f);    // The one I have seems to be reading -2ºC below the real expected value
+    dht.init(22, EDHT::DHT_11);
+
+    /*
+    rVirtual.init(2, 4);
+    LOG_D(TAG_MAIN, "Virtual relays start");
+    rVirtual.getActiveCount();
+    LOG_D(TAG_MAIN, "Virtual [0:1] true");
+    rVirtual.set(0, 1, true);
+    rVirtual.getActiveCount();
+    LOG_D(TAG_MAIN, "Virtual [0:3] true");
+    rVirtual.set(0, 3, true);
+    rVirtual.getActiveCount();
+
+    LOG_D(TAG_MAIN, "Virtual [0:5] true");
+    rVirtual.set(0, 5, true);
+    rVirtual.getActiveCount();
+
+    LOG_D(TAG_MAIN, "Virtual [1:0] true");
+    rVirtual.set(1, 0, true);
+    rVirtual.getActiveCount();
+    */
 
     LOG_I(TAG_MAIN, "Setup completed");
 }
@@ -164,10 +173,12 @@ void loop() {
     hum0Value  = dht.readHumidity();
     temp1Value = lm35.readTemperature();
 
+    /*
     if (lastUpdate + UPDATE_VALUE < getMillis()) {
         LOG_T(TAG_MAIN, "%dºC | %dºC - %d%", temp1Value, temp0Value, hum0Value);
         lastUpdate = getMillis();
     }
+    */
 
     if (mqtt.isConnected()) {
         if (lastUpload + UPLOAD_VALUE < getMillis() || connectUpload) {
