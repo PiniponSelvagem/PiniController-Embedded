@@ -44,8 +44,7 @@ uint64_t lastUpdate = 0;
 uint64_t lastUpload = 0;
 bool connectUpload = false;
 
-
-//RelaysVirtual rVirtual;
+RelaysVirtual rVirtual;
 //IRelays irelays;
 
 
@@ -139,7 +138,7 @@ void setup() {
     lm35.init(34, 2.0f);    // The one I have seems to be reading -2ºC below the real expected value
     dht.init(22, EDHT::DHT_11);
 
-    /*
+    
     rVirtual.init(2, 4);
     LOG_D(TAG_MAIN, "Virtual relays start");
     rVirtual.getActiveCount();
@@ -157,7 +156,7 @@ void setup() {
     LOG_D(TAG_MAIN, "Virtual [1:0] true");
     rVirtual.set(1, 0, true);
     rVirtual.getActiveCount();
-    */
+    
 
     LOG_I(TAG_MAIN, "Setup completed");
 }
