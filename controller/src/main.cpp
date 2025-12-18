@@ -56,6 +56,16 @@ RelaysTS rTS;
 #endif // TEST_RELAYS_TS
 //RelaysX16Blue rBlue;
 
+#define STORAGE_ID "PINI_TEST_CONTROLLER"
+Storage storage;
+
+
+
+#define LORA_TEST
+#ifdef LORA_TEST
+    LoRaTxRx lora;
+#endif
+
 
 
 void MQTT_callback(const char *topic, const byte *payload, const unsigned int length) {
@@ -75,6 +85,8 @@ void setup() {
     LOG_I(TAG_MAIN, "Information example");
     LOG_D(TAG_MAIN, "Debug example");
     LOG_T(TAG_MAIN, "Trace example");
+
+    storage.init(STORAGE_ID, sizeof(STORAGE_ID));
 
 #ifdef USE_WIFI
     wifi.init();
@@ -179,9 +191,31 @@ void setup() {
     }
 #endif // TEST_RELAYS_TS
 
+#ifdef LORA_TEST
+    lora.init(27,19,5,18,23,26, 864);
+    lora.setSpreadingFactor(7);
+    lora.setTxPower(20);
+    lora.setBandwidth(ELoRaBandwidth::LR_BW_125_KHZ);
+    lora.onReceive(
+        [](const uint8_t* payload, size_t size, int rssi, float snr) {
+            LOG_D(TAG_MAIN, "size=%d rssi=%d snr=%f", size, rssi, snr);
+            Serial.print("Payload: ");
+            for (size_t i = 0; i < size; ++i) {
+                Serial.print(payload[i], HEX);
+                Serial.print(' ');
+            }
+            Serial.println();
+        }
+    );
+    //
+    uint8_t payload[4] = { 0xFF, 0XAB, 0X12, 0X34 };
+    lora.send(payload, 4);
+#endif
+
     LOG_I(TAG_MAIN, "Setup completed");
 }
 
+uint64_t loraSend = 0;
 bool set = false;
 #ifdef READ_SENSORS
 int temp0Value;
@@ -191,6 +225,17 @@ int temp1Value;
 void loop() {
     network->maintain();
     mqtt.maintain();
+
+#ifdef LORA_TEST
+    lora.maintain();
+    /*
+    if (loraSend + 10000 < getMillis()) {
+        uint8_t payload[4] = { 0xFF, 0XAB, 0X12, 0X34 };
+        lora.send(payload, 4);
+        loraSend = getMillis();
+    }
+    */
+#endif
 
 #ifdef TEST_RELAYS_TS
     if (rTS.isModuleConnected(1)) {
