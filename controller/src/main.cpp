@@ -64,6 +64,7 @@ Storage storage;
 #define LORA_TEST
 #ifdef LORA_TEST
     LoRaTxRx lora;
+    LoRaComm loraComm;
 #endif
 
 
@@ -74,7 +75,7 @@ void MQTT_callback(const char *topic, const byte *payload, const unsigned int le
 
 void setup() {
     Serial.begin(115200);
-    Serial.println();	// Just to start on a new clean line
+    Serial.println();   // Just to start on a new clean line
 
     LOG_I(TAG_MAIN, "Setup started");
     LOG_I(TAG_MAIN, "Firmware: [%d] | Build: [%s, %s]", FIRMWARE_VERSION, __DATE__, __TIME__);
