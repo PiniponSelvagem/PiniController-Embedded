@@ -25,7 +25,6 @@ MQTT mqtt;
 String topic_lwt;
 
 //#define READ_SENSORS
-
 #ifdef READ_SENSORS
 String topic_temperatureDHT;
 String topic_humidityDHT;
