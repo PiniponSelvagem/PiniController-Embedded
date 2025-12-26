@@ -1,11 +1,8 @@
+#include "secrets.hpp"
+
 #include <pinicore.hpp>
 #include <Arduino.h>
 #include <ArduinoHttpClient.h>
-
-#include "secrets.hpp"
-
-#include <PubSubClient.h>
-
 
 #define TAG_MAIN    "main"
 
@@ -62,7 +59,6 @@ Storage storage;
 
 #define LORA_TEST
 #ifdef LORA_TEST
-    LoRaTxRx lora;
     LoRaComm loraComm;
 #endif
 
@@ -192,13 +188,15 @@ void setup() {
 #endif // TEST_RELAYS_TS
 
 #ifdef LORA_TEST
-    lora.init(27,19,5,18,23,26, 864);
-    lora.setSpreadingFactor(7);
-    lora.setTxPower(20);
-    lora.setBandwidth(ELoRaBandwidth::LR_BW_125_KHZ);
-    lora.onReceive(
-        [](const uint8_t* payload, size_t size, int rssi, float snr) {
-            LOG_D(TAG_MAIN, "size=%d rssi=%d snr=%f", size, rssi, snr);
+    loraComm.init(27,19,5,18,23,26, 864, true, 666);
+    //loraComm.setCryptoPhrase(0xFE);
+    loraComm.setSpreadingFactor(7);
+    loraComm.setTxPower(20);
+    loraComm.setBandwidth(ELoRaBandwidth::LR_BW_125_KHZ);
+    loraComm.onReceive(
+        66,
+        [](uint32_t radioId, const uint8_t* payload, size_t size, int rssi, float snr) {
+            LOG_D(TAG_MAIN, "radioId=%d size=%d rssi=%d snr=%f", radioId, size, rssi, snr);
             Serial.print("Payload: ");
             for (size_t i = 0; i < size; ++i) {
                 Serial.print(payload[i], HEX);
@@ -209,7 +207,8 @@ void setup() {
     );
     //
     uint8_t payload[4] = { 0xFF, 0XAB, 0X12, 0X34 };
-    lora.send(payload, 4);
+    loraComm.send(0x12345678, 66, false, payload, 4);
+    //_sendAck(0x66, 66, 0x732CEF0A);
 #endif
 
     LOG_I(TAG_MAIN, "Setup completed");
@@ -227,7 +226,7 @@ void loop() {
     mqtt.maintain();
 
 #ifdef LORA_TEST
-    lora.maintain();
+    loraComm.maintain();
     /*
     if (loraSend + 10000 < getMillis()) {
         uint8_t payload[4] = { 0xFF, 0XAB, 0X12, 0X34 };
