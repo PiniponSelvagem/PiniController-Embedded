@@ -188,7 +188,7 @@ void setup() {
 #endif // TEST_RELAYS_TS
 
 #ifdef LORA_TEST
-    loraComm.init(27,19,5,18,23,26, 864, true, 666);
+    loraComm.init(27,19,5,18,23,26, 864, false, 1555);
     //loraComm.setCryptoPhrase(0xFE);
     loraComm.setSpreadingFactor(7);
     loraComm.setTxPower(20);
@@ -207,7 +207,7 @@ void setup() {
     );
     //
     uint8_t payload[4] = { 0xFF, 0XAB, 0X12, 0X34 };
-    loraComm.send(0x12345678, 66, false, payload, 4);
+    loraComm.send(555, 66, true, payload, 4);
     //_sendAck(0x66, 66, 0x732CEF0A);
 #endif
 
