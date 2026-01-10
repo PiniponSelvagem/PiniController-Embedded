@@ -8,24 +8,8 @@
 
 #define FIRMWARE_VERSION    666
 
-
-#define MQTT_TOPIC_FMT_BASE_PATH                "irrigation/sectors/v0/%s"
-//
-#define MQTT_TOPIC_P_FMT                        MQTT_TOPIC_FMT_BASE_PATH "/up"
-#define MQTT_TOPIC_P_FMT_ONLINE                 MQTT_TOPIC_P_FMT         "/lwt"
-//
-#define MQTT_TOPIC_P_FMT_SENSORS                MQTT_TOPIC_P_FMT         "/sensors"
-#define MQTT_TOPIC_P_FMT_SENSORS_TEMPERATURE    MQTT_TOPIC_P_FMT_SENSORS "/temperature/%d"
-#define MQTT_TOPIC_P_FMT_SENSORS_HUMIDITY       MQTT_TOPIC_P_FMT_SENSORS "/humidity/%d"
-//
-#define MQTT_TOPIC_P_FMT_RELAYS                 MQTT_TOPIC_P_FMT         "/relays/%d/%d"
-//
-//
-#define MQTT_TOPIC_S_FMT                        MQTT_TOPIC_FMT_BASE_PATH "/down"
-#define MQTT_TOPIC_S_FMT_RELAYS                 MQTT_TOPIC_S_FMT         "/relays"
-
-
 #define USE_WIFI
+
 #ifdef USE_WIFI
     WiFiComm wifi;
     INetwork* network = (INetwork*)&wifi;
@@ -37,31 +21,29 @@
 MQTT mqtt;
 String topic_lwt;
 
-#define READ_SENSORS
+//#define READ_SENSORS
 #ifdef READ_SENSORS
-    String topic_p_temperatureDHT;
-    String topic_p_humidityDHT;
-    String topic_p_temperatureLM;
-
-    LM35 lm35;
-    DHT dht;
-
-    #define UPLOAD_VALUE    (5*60*1000)
-    uint64_t lastUpdate = 0;
-    uint64_t lastUpload = 0;
+String topic_temperatureDHT;
+String topic_humidityDHT;
+String topic_temperatureLM;
 #endif // READ_SENSORS
 
-bool connected = false;
+#ifdef READ_SENSORS
+LM35 lm35;
+DHT dht;
+#endif // READ_SENSORS
 
+#define UPDATE_VALUE    (15*1000)
+#define UPLOAD_VALUE    (5*60*1000)
+uint64_t lastUpdate = 0;
+uint64_t lastUpload = 0;
+bool connectUpload = false;
 
 //#define TEST_RELAYS_TS
 
-String topic_s_relays;
-RelaysVirtual rVirtual;
-#define VIRTUAL_RELAYS__MODULES           2
-#define VIRTUAL_RELAYS__RELAYS_PER_MODULE 16
+//RelaysVirtual rVirtual;
 #ifdef TEST_RELAYS_TS
-    RelaysTS rTS;
+RelaysTS rTS;
 #endif // TEST_RELAYS_TS
 //RelaysX16Blue rBlue;
 
@@ -69,13 +51,12 @@ RelaysVirtual rVirtual;
 Storage storage;
 
 
-#define _TOPIC_BUILDER_SIZE_ 128
 
-
-//#define LORA_TEST
+#define LORA_TEST
 #ifdef LORA_TEST
     LoRaComm loraComm;
 #endif
+
 
 
 void MQTT_callback(const char *topic, const byte *payload, const unsigned int length) {
@@ -97,15 +78,6 @@ void setup() {
     LOG_T(TAG_MAIN, "Trace example");
 
     storage.init(STORAGE_ID, sizeof(STORAGE_ID));
-
-    rVirtual.init(VIRTUAL_RELAYS__MODULES, VIRTUAL_RELAYS__RELAYS_PER_MODULE);
-    rVirtual.onRelay(
-        [](uint8_t module, uint8_t relay, bool state) {
-            char topicBuilder[_TOPIC_BUILDER_SIZE_];
-            snprintf(topicBuilder, _TOPIC_BUILDER_SIZE_, MQTT_TOPIC_P_FMT_RELAYS, getUniqueId(), module, relay);
-            mqtt.publish(topicBuilder, String(state?"1":"0").c_str(), true);
-        }
-    );
 
 #ifdef USE_WIFI
     wifi.init();
@@ -133,17 +105,11 @@ void setup() {
     LOG_D(TAG_MAIN, "Received: [status: %d] [body (%d): %s]", status, bodyLen, body.c_str());
     */
 
-
-    char topicBuilder[_TOPIC_BUILDER_SIZE_];
-    snprintf(topicBuilder, _TOPIC_BUILDER_SIZE_, MQTT_TOPIC_P_FMT_ONLINE, getUniqueId());
-    topic_lwt = String(topicBuilder);
+   topic_lwt = "irrigation/sectors/v0/"+String(getUniqueId())+"/up/lwt";
 #ifdef READ_SENSORS
-    snprintf(topicBuilder, _TOPIC_BUILDER_SIZE_, MQTT_TOPIC_P_FMT_SENSORS_TEMPERATURE, getUniqueId(), 0);
-    topic_p_temperatureDHT = String(topicBuilder);
-    snprintf(topicBuilder, _TOPIC_BUILDER_SIZE_, MQTT_TOPIC_P_FMT_SENSORS_TEMPERATURE, getUniqueId(), 1);
-    topic_p_temperatureLM = String(topicBuilder);
-    snprintf(topicBuilder, _TOPIC_BUILDER_SIZE_, MQTT_TOPIC_P_FMT_SENSORS_HUMIDITY, getUniqueId(), 0);
-    topic_p_humidityDHT = String(topicBuilder);
+    topic_temperatureDHT = "irrigation/sectors/v0/"+String(getUniqueId())+"/up/sensors/temperature/0";
+    topic_temperatureLM = "irrigation/sectors/v0/"+String(getUniqueId())+"/up/sensors/temperature/1";
+    topic_humidityDHT = "irrigation/sectors/v0/"+String(getUniqueId())+"/up/sensors/humidity/0";
 #endif // READ_SENSORS
 
     /*
@@ -168,41 +134,46 @@ void setup() {
     mqtt.setCredentials(MQTT_USER, MQTT_PASS);
     mqtt.setWill(topic_lwt.c_str(), "0", 2, true);
 
-    snprintf(topicBuilder, _TOPIC_BUILDER_SIZE_, MQTT_TOPIC_S_FMT_RELAYS, getUniqueId());
-    topic_s_relays = String(topicBuilder);
     mqtt.onTopic(
-        topic_s_relays.c_str(),
+        "pinicore/down/test",
         [](const char* payload, uint32_t length) {
-            char *strPtr;
-            int module = atoi(strtok_r((char *)payload, ",", &strPtr));
-            int relay  = atoi(strtok_r(NULL, ",", &strPtr));
-            int state  = atoi(strtok_r(NULL, ",", &strPtr));
-            bool stateBool = (state == 1);
-            LOG_I(TAG_MAIN, "Received request to set: [module: '%d'] [relay: %d] [state: %s]", module, relay, stateBool?"true":"false");
-            rVirtual.set(module, relay, stateBool);
+            LOG_I(TAG_MAIN, "TEST topic: [payload: '%s'] [length: %d]", payload, length);
         }
     );
 
     mqtt.onConnect(
         []() {
             mqtt.publish(topic_lwt.c_str(), "1", true);
-            connected = true;
-            rVirtual.invalidateAll();
+            connectUpload = true;
         }
     );
     mqtt.connect();
-
-    LOG_D(TAG_MAIN, topic_lwt.c_str());
-    LOG_D(TAG_MAIN, topic_s_relays.c_str());
-
 
 #ifdef READ_SENSORS
     lm35.init(34, 2.0f);    // The one I have seems to be reading -2ºC below the real expected value
     dht.init(22, EDHT::DHT_11);
 #endif // READ_SENSORS
 
-    
-    //rVirtual.setModules(2, 16);
+    /*
+    rVirtual.setModules(2, 4);
+    rVirtual.init();
+    LOG_D(TAG_MAIN, "Virtual relays start");
+    rVirtual.getActiveCount();
+    LOG_D(TAG_MAIN, "Virtual [0:1] true");
+    rVirtual.set(0, 1, true);
+    rVirtual.getActiveCount();
+    LOG_D(TAG_MAIN, "Virtual [0:3] true");
+    rVirtual.set(0, 3, true);
+    rVirtual.getActiveCount();
+
+    LOG_D(TAG_MAIN, "Virtual [0:5] true");
+    rVirtual.set(0, 5, true);
+    rVirtual.getActiveCount();
+
+    LOG_D(TAG_MAIN, "Virtual [1:0] true");
+    rVirtual.set(1, 0, true);
+    rVirtual.getActiveCount();
+    */
 #ifdef TEST_RELAYS_TS
     rTS.init();
     for (int i=0; i<rTS.getRelaysPerModule(); ++i) {
@@ -241,9 +212,9 @@ void setup() {
 uint64_t loraSend = 0;
 bool set = false;
 #ifdef READ_SENSORS
-    int temp0Value;
-    int hum0Value;
-    int temp1Value;
+int temp0Value;
+int hum0Value;
+int temp1Value;
 #endif // READ_SENSORS
 void loop() {
     network->maintain();
@@ -281,12 +252,12 @@ void loop() {
     temp1Value = lm35.readTemperature();
     
     if (mqtt.isConnected()) {
-        if (lastUpload + UPLOAD_VALUE < getMillis() || connected) {
-            mqtt.publish(topic_p_temperatureDHT.c_str(), String(temp0Value).c_str(), false);
-            mqtt.publish(topic_p_humidityDHT.c_str(), String(hum0Value).c_str(), false);
-            mqtt.publish(topic_p_temperatureLM.c_str(), String(temp1Value).c_str(), false);
+        if (lastUpload + UPLOAD_VALUE < getMillis() || connectUpload) {
+            mqtt.publish(topic_temperatureDHT.c_str(), String(temp0Value).c_str(), false);
+            mqtt.publish(topic_humidityDHT.c_str(), String(hum0Value).c_str(), false);
+            mqtt.publish(topic_temperatureLM.c_str(), String(temp1Value).c_str(), false);
             lastUpload = getMillis();
-            connected = false;
+            connectUpload = false;
         }
     }
 #endif // READ_SENSORS
